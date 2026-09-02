@@ -89,7 +89,7 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if not salt or not nonce:
                         # Don't include cookie contents in error; log only minimal info
                         self.debug_info["error"] = "missing_tokens"
-                        _LOGGER.debug("Missing tokens during setup. Available cookies: %s", jar_cookies)
+                        _LOGGER.debug("Missing tokens during setup. Available cookie names: %s", list(jar_cookies.keys()))
                         errors["base"] = "cannot_connect"
                     else:
                         # Step 3: Cryptographic Signature Generation
