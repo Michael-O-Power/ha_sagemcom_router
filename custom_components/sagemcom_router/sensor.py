@@ -130,6 +130,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     coordinator = domain_data["coordinator"]
     host = domain_data["host"]
     
+    # Retrieve both preferences from the config entry options (defaulting to False)
+    expose_main = entry.options.get("expose_main_wifi_passphrase", False)
+    expose_guest = entry.options.get("expose_guest_wifi_passphrase", False)
+    
     entities = []
 
     # 1. Spawn Core Router Sensors
@@ -161,8 +165,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     ]
 
     for net in networks_map:
+        # Determine which toggle applies to the current network group
+        expose_passphrase = expose_main if net["device_id"] == "primary" else expose_guest
+
         for coord_key, band_id, label in net["bands"]:
             for definition in net["defs"]:
+                # Gate the passphrase sensors behind the relevant configuration option
+                if definition["key"] == "passphrase" and not expose_passphrase:
+                    continue
                 entities.append(SagemcomWiFiSensor(coordinator, entry.entry_id, net["device_id"], net["name"], coord_key, band_id, label, definition))
 
     # 4. Spawn Connected Clients
@@ -311,7 +321,11 @@ class SagemcomWiFiSensor(CoordinatorEntity, SensorEntity):
             manufacturer="Sagemcom Network", 
             via_device=(DOMAIN, entry_id)
         )
-
+        
+        # Set passphrase sensors to be disabled by default in the entity registry
+        if definition["key"] == "passphrase":
+            self._attr_entity_registry_enabled_default = False
+            
     @property
     def native_value(self):
         if not self.coordinator.data: 

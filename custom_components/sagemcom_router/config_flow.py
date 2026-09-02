@@ -5,6 +5,7 @@ import voluptuous as vol
 import aiohttp
 from yarl import URL
 from homeassistant import config_entries
+from homeassistant.core import callback
 from homeassistant.helpers import selector
 from .const import DOMAIN
 from .crypto import calculate_auth_key
@@ -171,4 +172,38 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema(schema_dict),
             errors=errors,
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return SagemcomOptionsFlowHandler(config_entry)
+
+
+class SagemcomOptionsFlowHandler(config_entries.OptionsFlow):
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options_schema = vol.Schema(
+            {
+                vol.Optional(
+                    "expose_main_wifi_passphrase",
+                    default=self.config_entry.options.get("expose_main_wifi_passphrase", False),
+                ): bool,
+                vol.Optional(
+                    "expose_guest_wifi_passphrase",
+                    default=self.config_entry.options.get("expose_guest_wifi_passphrase", False),
+                ): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=options_schema,
         )
