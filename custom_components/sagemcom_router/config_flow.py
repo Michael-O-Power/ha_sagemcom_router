@@ -16,6 +16,7 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     
     def __init__(self):
+        # Keep minimal runtime info for logging only; do NOT capture sensitive values.
         self.debug_info = {}
 
     async def async_step_user(self, user_input=None):
@@ -60,7 +61,8 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     nonce = None
                     bbox_id = None
 
-                    self.debug_info["params_req_headers"] = str(headers_params)
+                    # Do NOT store request headers (may contain sensitive tokens)
+                    self.debug_info["params_req_sent"] = True
 
                     async with asyncio.timeout(5):
                         async with session.post(
@@ -69,8 +71,8 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             headers=headers_params,
                             skip_auto_headers={"Cookie"}
                         ) as resp:
+                            # Only record non-sensitive status for diagnostics
                             self.debug_info["params_resp_status"] = str(resp.status)
-                            self.debug_info["params_resp_headers"] = str(resp.headers)
                             
                             if "salt" in resp.cookies:
                                 salt = resp.cookies["salt"].value
@@ -85,7 +87,9 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if not bbox_id: bbox_id = jar_cookies.get("BBOX_ID")
 
                     if not salt or not nonce:
-                        self.debug_info["error"] = f"Missing tokens. Active Jar: {jar_cookies}"
+                        # Don't include cookie contents in error; log only minimal info
+                        self.debug_info["error"] = "missing_tokens"
+                        _LOGGER.debug("Missing tokens during setup. Available cookies: %s", jar_cookies)
                         errors["base"] = "cannot_connect"
                     else:
                         # Step 3: Cryptographic Signature Generation
@@ -114,8 +118,8 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         headers_login = base_headers.copy()
                         headers_login["Cookie"] = "; ".join(cookie_parts)
 
-                        self.debug_info["login_req_payload"] = str(payload_dict)
-                        self.debug_info["login_req_headers"] = str(headers_login)
+                        # Do NOT store payloads or headers containing sensitive tokens
+                        self.debug_info["login_req_sent"] = True
 
                         async with session.post(
                             login_url, 
@@ -123,9 +127,8 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             headers=headers_login, 
                             skip_auto_headers={"Cookie"}
                         ) as login_resp:
+                            # Only capture non-sensitive status code
                             self.debug_info["login_resp_status"] = str(login_resp.status)
-                            error_body = await login_resp.text()
-                            self.debug_info["login_resp_body"] = error_body
 
                             if login_resp.status in [200, 201]:
                                 _LOGGER.info("Successfully authenticated with Sagemcom Router!")
@@ -133,26 +136,21 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     title=f"Sagemcom F@st 5866T ({host})", data=user_input
                                 )
                             else:
-                                _LOGGER.error("Auth rejected. Status: %s. Body: %s", login_resp.status, error_body)
+                                _LOGGER.error("Auth rejected. Status: %s.", login_resp.status)
                                 errors["base"] = "invalid_auth"
 
             except Exception as err:
-                self.debug_info["error"] = str(err)
+                # Keep only a short marker in debug_info; log exception for developers
+                self.debug_info["error"] = "exception_occurred"
+                _LOGGER.debug("Exception during Sagemcom setup: %s", err)
                 errors["base"] = "cannot_connect"
 
-            # Render output directly back to the UI window on failure
+            # Render minimal, non-sensitive output back to the UI window on failure
             dump_text = (
-                f"--- LOGIN PARAMS REQUEST ---\n"
-                f"Headers: {self.debug_info.get('params_req_headers', '')}\n\n"
                 f"--- LOGIN PARAMS RESPONSE ---\n"
-                f"Status: {self.debug_info.get('params_resp_status', '')}\n"
-                f"Headers: {self.debug_info.get('params_resp_headers', '')}\n\n"
-                f"--- LOGIN REQUEST ---\n"
-                f"Payload: {self.debug_info.get('login_req_payload', '')}\n"
-                f"Headers: {self.debug_info.get('login_req_headers', '')}\n\n"
+                f"Status: {self.debug_info.get('params_resp_status', '')}\n\n"
                 f"--- LOGIN RESPONSE ---\n"
-                f"Status: {self.debug_info.get('login_resp_status', '')}\n"
-                f"Body: {self.debug_info.get('login_resp_body', '')}\n\n"
+                f"Status: {self.debug_info.get('login_resp_status', '')}\n\n"
                 f"--- EXCEPTIONS ---\n"
                 f"{self.debug_info.get('error', 'None')}"
             )
@@ -164,6 +162,7 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
         if dump_text:
+            # Expose only the minimal non-sensitive status dump
             schema_dict[vol.Optional("debug_output", default=dump_text)] = selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             )
