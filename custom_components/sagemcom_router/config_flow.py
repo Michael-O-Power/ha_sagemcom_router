@@ -185,22 +185,37 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class SagemcomOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
+        self._config_entry = config_entry
+        self._new_options = {}
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
         if user_input is not None:
+            # Check the previous states vs the new states
+            was_main = self._config_entry.options.get("expose_main_wifi_passphrase", False)
+            was_guest = self._config_entry.options.get("expose_guest_wifi_passphrase", False)
+            is_main = user_input.get("expose_main_wifi_passphrase", False)
+            is_guest = user_input.get("expose_guest_wifi_passphrase", False)
+
+            # Save the selections temporarily
+            self._new_options = user_input
+
+            # If either option was turned OFF, redirect to the database warning step
+            if (was_main and not is_main) or (was_guest and not is_guest):
+                return await self.async_step_warn_db()
+
+            # Otherwise, just save and close normally
             return self.async_create_entry(title="", data=user_input)
 
         options_schema = vol.Schema(
             {
                 vol.Optional(
                     "expose_main_wifi_passphrase",
-                    default=self.config_entry.options.get("expose_main_wifi_passphrase", False),
+                    default=self._config_entry.options.get("expose_main_wifi_passphrase", False),
                 ): bool,
                 vol.Optional(
                     "expose_guest_wifi_passphrase",
-                    default=self.config_entry.options.get("expose_guest_wifi_passphrase", False),
+                    default=self._config_entry.options.get("expose_guest_wifi_passphrase", False),
                 ): bool,
             }
         )
@@ -208,4 +223,16 @@ class SagemcomOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=options_schema,
+        )
+
+    async def async_step_warn_db(self, user_input=None):
+        """Warn user to clear database history after unchecking a box."""
+        if user_input is not None:
+            # User clicked submit on the warning screen, finalize the save
+            return self.async_create_entry(title="", data=self._new_options)
+
+        # Show an empty form that just displays the warning description and a Submit button
+        return self.async_show_form(
+            step_id="warn_db",
+            data_schema=vol.Schema({}),
         )

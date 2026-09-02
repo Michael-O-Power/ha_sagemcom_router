@@ -1,0 +1,18 @@
+{
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sagemcom Router Options",
+        "description": "⚠️ **SECURITY WARNING:** Enabling these sensors exposes your Wi-Fi passwords to all Home Assistant users (regardless of admin status) and saves them in plain-text backups. Proceed with caution.",
+        "data": {
+          "expose_main_wifi_passphrase": "Expose Main Wi-Fi Passphrase Sensors",
+          "expose_guest_wifi_passphrase": "Expose Guest Wi-Fi Passphrase Sensors"
+        }
+      },
+      "warn_db": {
+        "title": "Clear Database History",
+        "description": "You have disabled a Wi-Fi passphrase sensor.\n\n**Important:** While the sensor will stop updating, previously recorded passwords remain in your Home Assistant database history. \n\nTo fully remove them, you must purge your recorder history or delete the sensor entity completely from the entity registry."
+      }
+    }
+  }
+}
