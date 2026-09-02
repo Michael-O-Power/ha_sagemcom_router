@@ -54,6 +54,33 @@ If you prefer to install without HACS, you can do it via terminal/SSH.
 
 Once authenticated, your sensors will begin pulling data within 60 seconds!
 
+### Exposing Wi-Fi Passwords (Optional)
+For security reasons, this integration does not expose your Wi-Fi passwords by default. If you need to access your Main or Guest Wi-Fi passwords within Home Assistant (e.g., for dashboard QR codes), you can enable them via the integration options:
+
+1. Go to **Settings** > **Devices & Services**.
+2. On the Sagemcom integration card, click **Configure**.
+3. Check the box for the Main or Guest passphrases you wish to expose and click **Submit**.
+4. Navigate to the Sagemcom device page and manually enable the newly created, disabled-by-default passphrase entities.
+
+⚠️ **SECURITY WARNING:**
+Enabling these sensors exposes your Wi-Fi passwords to all Home Assistant users (regardless of admin status) and saves them in plain-text within your Home Assistant database and system backups. Proceed with caution. If your system backups are insecure, your passphrases would be at risk.
+
+**Note on Disabling:** If you later choose to disable these sensors by unchecking the options, the sensors will stop updating. However, previously recorded passwords will remain in your Home Assistant database history. To fully remove them, you must purge your recorder history or completely delete the sensor entity from the entity registry.
+
+**Option 1: Purge the specific history (Recommended)**
+This removes the plain-text passwords from your database without waiting for the auto-purge cycle.
+1. In Home Assistant, navigate to **Developer Tools** > **Actions** (or **Services** in older versions).
+2. Search for and select the **Recorder: Purge Entities** (`recorder.purge_entities`) action.
+3. Click **+ Choose entity** and select your passphrase sensors (e.g., `sensor.sagemcom_primary_wi_fi_network_passphrase`).
+4. Check the box for **Days to keep** and set the value to `0`.
+5. Click **Perform Action**. 
+
+**Option 2: Delete the entity entirely**
+Once you have unchecked the options and reloaded the integration, the sensor entity becomes orphaned.
+1. Go to **Settings** > **Devices & Services** > **Entities**.
+2. Click the filter/funnel icon in the top right and ensure **Show disabled entities** is checked.
+3. Search for `passphrase` to locate the old sensors.
+4. Click on the sensor, go to the settings gear icon, scroll to the bottom, and click **Delete**.
 
 ### Tracking Daily Data Usage
 
