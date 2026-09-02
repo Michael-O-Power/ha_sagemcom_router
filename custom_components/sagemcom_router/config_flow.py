@@ -95,7 +95,9 @@ class SagemcomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     else:
                         # Step 3: Cryptographic Signature Generation
                         cnonce = f"{random.randint(1000000000000000, 9999999999999999)}000"
-                        auth_key = calculate_auth_key(username, password, salt, nonce, cnonce)
+                        auth_key = await self.hass.async_add_executor_job(
+                            calculate_auth_key, username, password, salt, nonce, cnonce
+                        )
 
                         # Step 4: Final Authenticated Challenge Setup
                         login_url = f"http://{host}/api/v1/login"

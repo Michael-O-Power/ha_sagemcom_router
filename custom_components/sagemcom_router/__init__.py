@@ -96,7 +96,9 @@ class SagemcomDataCoordinator(DataUpdateCoordinator):
             raise UpdateFailed("Failed to retrieve salt/nonce during initialization")
 
         cnonce = f"{random.randint(1000000000000000, 9999999999999999)}000"
-        auth_key = calculate_auth_key(self.username, self.password, salt, nonce, cnonce)
+        auth_key = await self.hass.async_add_executor_job(
+            calculate_auth_key, self.username, self.password, salt, nonce, cnonce
+        )
 
         login_url = f"{self.base_url}/login"
         payload_dict = {"login": self.username, "auth_key": auth_key, "cnonce": cnonce}
