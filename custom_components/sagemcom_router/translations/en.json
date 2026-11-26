@@ -1,4 +1,32 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Sagemcom Router",
+        "description": "Enter the connection details for your Sagemcom F@st 5866T router.",
+        "data": {
+          "host": "Host",
+          "username": "Username",
+          "password": "Password",
+          "debug_output": "Diagnostic Status"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Sagemcom Router",
+        "description": "Authentication failed for {username} at {host}. Please enter the updated router password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the router",
+      "invalid_auth": "Invalid authentication credentials"
+    },
+    "abort": {
+      "reauth_successful": "Re-authentication was successful"
+    }
+  },
   "options": {
     "step": {
       "init": {

@@ -8,6 +8,7 @@ from yarl import URL
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -23,10 +24,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 class SagemcomDataCoordinator(DataUpdateCoordinator):
     """Class to manage continuous authentication and data fetching."""
 
-    def __init__(self, hass: HomeAssistant, host, username, password):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, host, username, password):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=f"Sagemcom {host}",
             update_interval=timedelta(seconds=60),
         )
@@ -66,9 +68,15 @@ class SagemcomDataCoordinator(DataUpdateCoordinator):
 
     async def _async_login(self):
         """Perform the Javascript login handshake to get fresh cookies."""
-        await self.session.get(f"http://{self.host}/", headers=self._base_headers)
+        try:
+            async with asyncio.timeout(10):
+                async with self.session.get(f"http://{self.host}/", headers=self._base_headers):
+                    pass
+        except (asyncio.TimeoutError, aiohttp.ClientError) as err:
+            raise UpdateFailed(f"Connection error connecting to router: {err}") from err
+
         jar_init = {k: m.value for k, m in self.session.cookie_jar.filter_cookies(URL(f"http://{self.host}/")).items()}
-        init_salt = jar_init.get("salt", "7UHqMkAHM8PNvh/O") 
+        init_salt = jar_init.get("salt", "7UHqMkAHM8PNvh/O")
         init_nonce = jar_init.get("nonce", str(random.randint(1000000000, 9999999999)))
 
         params_url = f"{self.base_url}/login-params"
@@ -80,12 +88,19 @@ class SagemcomDataCoordinator(DataUpdateCoordinator):
         try:
             async with asyncio.timeout(5):
                 async with self.session.post(params_url, data={"login": self.username}, headers=headers_params, skip_auto_headers={"Cookie"}) as resp:
+                    if resp.status in (401, 403):
+                        self._logged_in = False
+                        raise ConfigEntryAuthFailed(
+                            f"Router rejected login parameters: {resp.status}"
+                        )
                     resp.raise_for_status()
                     if "salt" in resp.cookies: salt = resp.cookies["salt"].value
                     if "nonce" in resp.cookies: nonce = resp.cookies["nonce"].value
                     if "BBOX_ID" in resp.cookies: bbox_id = resp.cookies["BBOX_ID"].value
+        except ConfigEntryAuthFailed:
+            raise
         except (asyncio.TimeoutError, aiohttp.ClientError) as err:
-            raise UpdateFailed(f"Connection error during parameter retrieval: {err}")
+            raise UpdateFailed(f"Connection error during parameter retrieval: {err}") from err
 
         jar_cookies = {k: m.value for k, m in self.session.cookie_jar.filter_cookies(URL(f"http://{self.host}/")).items()}
         if not salt: salt = jar_cookies.get("salt")
@@ -104,33 +119,48 @@ class SagemcomDataCoordinator(DataUpdateCoordinator):
         payload_dict = {"login": self.username, "auth_key": auth_key, "cnonce": cnonce}
         cookie_parts = ["modeSelected=admin", f"salt={salt}", "backgroundColor=restgui-tpg-theme", "currentLanguage=EN", f"nonce={nonce}"]
         if bbox_id: cookie_parts.append(f"BBOX_ID={bbox_id}")
-        
+
         headers_login = self._base_headers.copy()
         headers_login["Cookie"] = "; ".join(cookie_parts)
 
-        async with self.session.post(login_url, data=payload_dict, headers=headers_login, skip_auto_headers={"Cookie"}) as login_resp:
-            if login_resp.status not in [200, 201]:
-                raise UpdateFailed(f"Router rejected authentication: {login_resp.status}")
-            
-            if "BBOX_ID" in login_resp.cookies:
-                final_bbox = login_resp.cookies["BBOX_ID"].value
-                cookie_parts = [c for c in cookie_parts if not c.startswith("BBOX_ID=")]
-                cookie_parts.append(f"BBOX_ID={final_bbox}")
+        try:
+            async with asyncio.timeout(10):
+                async with self.session.post(login_url, data=payload_dict, headers=headers_login, skip_auto_headers={"Cookie"}) as login_resp:
+                    if 400 <= login_resp.status < 500:
+                        self._logged_in = False
+                        raise ConfigEntryAuthFailed(
+                            f"Router rejected authentication: {login_resp.status}"
+                        )
+                    if login_resp.status not in (200, 201):
+                        self._logged_in = False
+                        raise UpdateFailed(
+                            f"Unexpected HTTP status during login: {login_resp.status}"
+                        )
 
-            self._active_cookie = "; ".join(cookie_parts)
-            self._logged_in = True
+                    if "BBOX_ID" in login_resp.cookies:
+                        final_bbox = login_resp.cookies["BBOX_ID"].value
+                        cookie_parts = [c for c in cookie_parts if not c.startswith("BBOX_ID=")]
+                        cookie_parts.append(f"BBOX_ID={final_bbox}")
+
+                    self._active_cookie = "; ".join(cookie_parts)
+                    self._logged_in = True
+        except ConfigEntryAuthFailed:
+            raise
+        except (asyncio.TimeoutError, aiohttp.ClientError) as err:
+            raise UpdateFailed(f"Connection error during login: {err}") from err
 
     async def async_post_command(self, url_path: str, payload: dict):
         """Execute a state modification action against the router API."""
         if not self._logged_in:
             await self._async_login()
-        
+
         headers = self._base_headers.copy()
         headers["Cookie"] = self._active_cookie
         full_url = f"{self.base_url}/{url_path.lstrip('/')}"
-        
+
         async with self.session.post(full_url, json=payload, headers=headers, skip_auto_headers={"Cookie"}) as resp:
-            if resp.status in [401, 403]:
+            if resp.status in (401, 403):
+                self._logged_in = False
                 await self._async_login()
                 headers["Cookie"] = self._active_cookie
                 async with self.session.post(full_url, json=payload, headers=headers, skip_auto_headers={"Cookie"}) as retry_resp:
@@ -148,12 +178,18 @@ class SagemcomDataCoordinator(DataUpdateCoordinator):
             for key, url in self.endpoints.items():
                 headers = self._base_headers.copy()
                 headers["Cookie"] = self._active_cookie
-                
+
                 async with self.session.get(url, headers=headers, skip_auto_headers={"Cookie"}) as response:
-                    if response.status in [401, 403]:
+                    if response.status in (401, 403):
+                        self._logged_in = False
                         await self._async_login()
                         headers["Cookie"] = self._active_cookie
                         async with self.session.get(url, headers=headers, skip_auto_headers={"Cookie"}) as retry_resp:
+                            if retry_resp.status in (401, 403):
+                                self._logged_in = False
+                                raise ConfigEntryAuthFailed(
+                                    f"Authentication rejected after re-login: {retry_resp.status}"
+                                )
                             retry_resp.raise_for_status()
                             text = await retry_resp.text()
                             results[key] = await retry_resp.json() if text else {}
@@ -164,9 +200,13 @@ class SagemcomDataCoordinator(DataUpdateCoordinator):
 
             return results
 
-        except Exception as err:
+        except ConfigEntryAuthFailed:
             self._logged_in = False
-            raise UpdateFailed(f"API Error: {err}")
+            raise
+        except UpdateFailed:
+            raise
+        except (asyncio.TimeoutError, aiohttp.ClientError, ValueError) as err:
+            raise UpdateFailed(f"API Error: {err}") from err
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Sagemcom Router from a config entry."""
@@ -174,7 +214,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = entry.data.get("username")
     password = entry.data.get("password")
 
-    coordinator = SagemcomDataCoordinator(hass, host, username, password)
+    coordinator = SagemcomDataCoordinator(hass, entry, host, username, password)
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
