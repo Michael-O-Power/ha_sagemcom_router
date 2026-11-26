@@ -1,6 +1,7 @@
 {
   "domain": "sagemcom_router",
   "name": "Sagemcom F@st 5866T 5G Modem",
+  "categories": ["computers_network.routers_network"],
   "codeowners": [
     "@Michael-O-Power"
   ],
